@@ -16,6 +16,8 @@ namespace DarkRiftRPG
         public Dictionary<ushort, GameObject> ConnectedPlayers = new Dictionary<ushort, GameObject>();
         public ushort LocalPlayerID;
 
+
+
         void Awake()
         {
             if (Instance != null)
@@ -60,6 +62,7 @@ namespace DarkRiftRPG
                 GameObject go = Instantiate(playerPrefab, data.Position, Quaternion.identity);
                 go.GetComponentInChildren<TextMesh>().text = data.PlayerCharacterName;
 
+                
                 //Set camera to follow player
                 if (data.ID == LocalPlayerID)
                 {

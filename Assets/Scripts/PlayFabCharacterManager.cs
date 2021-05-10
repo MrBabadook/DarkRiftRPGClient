@@ -10,25 +10,30 @@ using System;
 using System.Linq;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using PlayFab.Json;
+using PlayFab.DataModels;
 
 namespace DarkRiftRPG
 {
     //Should manage calls between playfab api and characters retreieved from playfab
     public class PlayFabCharacterManager : MonoBehaviour
     {
-        public List<CharacterResult> Characters = new List<CharacterResult>();
-
         public static PlayFabCharacterManager Instance;
 
-        public GameObject PlayerCharacterSlot1;
-        public GameObject PlayerCharacterSlot2;
+        public List<GameObject> CharacterSlots = new List<GameObject>();
+
         public GameObject NewCharacterCreatePanel;
 
-        List<Character> playerCharacters = new List<Character>();
+        [SerializeField]
+        List<CharacterData> playerCharacters = new List<CharacterData>();
 
-        public Character currentSelectedCharacter;
+        [SerializeField]
+        List<CharacterButton> characterButtons;
+
+        public CharacterData currentSelectedCharacter;
 
         public TMP_Text InfoText;
+        int characterResultCount = 0;
 
         void Awake()
         {
@@ -39,11 +44,21 @@ namespace DarkRiftRPG
             }
 
             Instance = this;
+
+            DontDestroyOnLoad(this);
         }
         public void Init()
         {
             ConnectionManager.Instance.Client.MessageReceived += OnMessage;
+            characterButtons = FindObjectsOfType<CharacterButton>().ToList();
+
+            foreach (CharacterButton characterButton in characterButtons)
+            {
+                characterButton.gameObject.SetActive(false);
+            }
+            PlayFabLoginManager.Instance.OpenLoginPanel();
         }
+
         private void OnMessage(object sender, MessageReceivedEventArgs e)
         {
             using (Message m = e.GetMessage())
@@ -66,12 +81,16 @@ namespace DarkRiftRPG
                 return;
             }
 
-            InfoText.text = "New Character Created Successfull! Retrieving Character.";
+            InfoText.text = "New Character Create Successfull!";
+
             TryRetrievePlayerCharacters();
         }
 
         public void TryRetrievePlayerCharacters()
         {
+            ClearPlayerCharacterList(); //Clear current list of existing characters
+            ResetCharacterButtons();
+            ShowCharacterButtons();
             //Create a request that will return all characters for a given player
             ListUsersCharactersRequest listUsersCharactersRequest = new ListUsersCharactersRequest
             {
@@ -82,21 +101,12 @@ namespace DarkRiftRPG
             PlayFabClientAPI.GetAllUsersCharacters(listUsersCharactersRequest,
             result =>
             {
-                playerCharacters.Clear(); // empty out existing list of characters
+                characterResultCount = result.Characters.Count; // how many came back?
 
                 foreach (CharacterResult characterResult in result.Characters)
                 {
-                    //Create new character and set ID and Name
-                    Character characterData = new Character();
-                    characterData.CharacterID = characterResult.CharacterId;
-                    characterData.CharacterName = characterResult.CharacterName;
-
-                    playerCharacters.Add(characterData);
+                    GetDataForCharacter(characterResult);
                 }
-
-                GetStatsForPlayerCharacters(playerCharacters);
-                ShowCharacterSlotButtons(playerCharacters.Count);
-
             },
             error =>
             {
@@ -104,88 +114,98 @@ namespace DarkRiftRPG
             });
         }
 
-        private void GetStatsForPlayerCharacters(List<Character> characters)
+        private void GetDataForCharacter(CharacterResult characterResult)
         {
-            foreach (Character playerCharacter in characters)
+            var characterEntityKey = new PlayFab.DataModels.EntityKey { Id = characterResult.CharacterId, Type = "character" };
+
+            GetObjectsRequest getCharaterObjectDataRequest = new GetObjectsRequest
             {
-                GetCharacterStatisticsRequest characterStatsReq = new GetCharacterStatisticsRequest
-                {
-                    CharacterId = playerCharacter.CharacterID
-                };
-
-                PlayFabClientAPI.GetCharacterStatistics(characterStatsReq,
-                result =>
-                {
-                    //Get that character
-                    Character character = playerCharacters.Find(x => x.CharacterID == characterStatsReq.CharacterId);
-                    //ID and Name already set and are not stats - set level, xp, and gold
-                    SetStatsForCharacter(result, character);
-
-                    SetCharacterButtonInfo(character);
-                },
-                error =>
-                {
-                    InfoText.text = "Error getting character stats";
-                    Debug.Log(error.ErrorMessage);
-                });
+                Entity = characterEntityKey,
+                EscapeObject = true
             };
 
-            ShowCharacterSlotButtons(playerCharacters.Count);
-        }
-
-        private static void SetStatsForCharacter(GetCharacterStatisticsResult result, Character character)
-        {
-            character.CharacterLevel = result.CharacterStatistics["Level"].ToString();
-            character.CharacterXP = result.CharacterStatistics["XP"].ToString();
-            character.CharacterGold = result.CharacterStatistics["Gold"].ToString();
-        }
-
-        private void ShowCharacterSlotButtons(int characterCount)
-        {
-            PlayerCharacterSlot1.transform.GetChild(0).gameObject.SetActive(false);
-            PlayerCharacterSlot1.transform.GetChild(1).gameObject.SetActive(false);
-            PlayerCharacterSlot2.transform.GetChild(0).gameObject.SetActive(false);
-            PlayerCharacterSlot2.transform.GetChild(1).gameObject.SetActive(false);
-
-            switch (characterCount)
+            PlayFabDataAPI.GetObjects(getCharaterObjectDataRequest,
+            result =>
             {
-                case 0:
-                    //No characters
-                    PlayerCharacterSlot1.transform.GetChild(0).gameObject.SetActive(true);
-                    PlayerCharacterSlot2.transform.GetChild(0).gameObject.SetActive(true);
+                Debug.Log("result.Objects[\"CharacterData\"].EscapedDataObject: " + result.Objects["CharacterData"].EscapedDataObject);
+               
+                CharacterData characterData = PlayFabSimpleJson.DeserializeObject<CharacterData>(result.Objects["CharacterData"].EscapedDataObject);
+                playerCharacters.Add(characterData);
+                Debug.Log($"playerCharacters added to, count is {playerCharacters.Count}");
+
+                SetCharacterButtonData(characterData);
+                ShowCharacterButtons();
+
+            },
+            error =>
+            {
+                InfoText.text = "Error getting character stats";
+                Debug.Log(error.ErrorMessage);
+            });
+
+           
+        }
+
+        private void SetCharacterButtonData(CharacterData characterData)
+        {
+            foreach (var slot in CharacterSlots)
+            {
+                CharacterSlot characterSlot = slot.GetComponent<CharacterSlot>();
+                CharacterButton characterButton = characterSlot.CharacterSelectBtn.GetComponent<CharacterButton>();
+                if (!characterButton.isCharacterDataSet)
+                {
+                    characterButton.Init(characterData.CharacterName, characterData.CharacterLevel, characterData.CharacterXP, characterData.CharacterGold);
+                    characterButton.GetComponent<Button>().onClick.AddListener(() => TryJoinGameAsCharacter(characterData));
                     break;
-                case 1:
-                    //One character
-                    PlayerCharacterSlot1.transform.GetChild(1).gameObject.SetActive(true);
-                    PlayerCharacterSlot2.transform.GetChild(0).gameObject.SetActive(true);
-                    break;
-                case 2:
-                    //Two characters
-                    PlayerCharacterSlot1.transform.GetChild(1).gameObject.SetActive(true);
-                    PlayerCharacterSlot2.transform.GetChild(1).gameObject.SetActive(true);
-                    break;
-                default:
-                    break;
+                }
+          
             }
         }
 
-        private void SetCharacterButtonInfo(Character character)
+        private void ShowCharacterButtons()
         {
-            CharacterButton[] CharacterButtons = FindObjectsOfType<CharacterButton>();
 
-            for (int i = 0; i < CharacterButtons.Length; i++)
-             {
-                if (!CharacterButtons[i].statsSet)
+            if (CharacterSlots.Count == 0)
+            {
+                foreach (var slot in CharacterSlots)
                 {
-                    CharacterButtons[i].Init(character.CharacterName, character.CharacterLevel, character.CharacterXP, character.CharacterGold);
-                    CharacterButtons[i].gameObject.GetComponent<Button>().onClick.AddListener(() => { TryJoinGameAsCharacter(character); });
-                    return;
+                    slot.GetComponent<CharacterSlot>().EmptySlotBtn.gameObject.SetActive(true);
                 }
             }
-            
+            else
+            {
+                foreach (GameObject slot in CharacterSlots)
+                {
+                    CharacterSlot characterSlot = slot.GetComponent<CharacterSlot>();
+                    CharacterButton characterButton = characterSlot.CharacterSelectBtn.GetComponent<CharacterButton>();
+
+                    if (characterButton.isCharacterDataSet)
+                    {
+                        characterSlot.CharacterSelectBtn.SetActive(true);
+                        characterSlot.EmptySlotBtn.SetActive(false);
+                    }
+                    else
+                    {
+                        characterSlot.EmptySlotBtn.gameObject.SetActive(true);
+                        characterSlot.CharacterSelectBtn.SetActive(false);
+                    }
+                }
+            }
         }
 
-        private void TryJoinGameAsCharacter(Character character)
+        private void ResetCharacterButtons()
+        {
+            foreach (var slot in CharacterSlots)
+            {
+                slot.GetComponent<CharacterSlot>().CharacterSelectBtn.GetComponent<CharacterButton>().isCharacterDataSet = false;
+            }
+        }
+        private void ClearPlayerCharacterList()
+        {
+            playerCharacters.Clear();
+        }
+
+        private void TryJoinGameAsCharacter(CharacterData character)
         {
             currentSelectedCharacter = character;
             SceneManager.LoadScene("Game");
@@ -217,6 +237,7 @@ namespace DarkRiftRPG
             ConnectionManager.Instance.OnTryCreateNewCharacter(desiredCharacterName);
 
             CloseCreateNewCharacterPrompt();
+            nameInput.text = string.Empty;
         }
 
         private void OnDestroy()

@@ -13,16 +13,16 @@ namespace DarkRiftRPG
         public TMP_Text xpText;
         public TMP_Text goldText;
 
-        public bool statsSet;
+        public bool isCharacterDataSet;
 
-        public void Init(string name, string level, string xp, string gold)
+        public void Init(string name, int level, int xp, int gold)
         {
             nameText.text = name;
-            levelText.text = "Level\n" + level;
-            xpText.text = "XP\n" + xp;
-            goldText.text = "Gold\n" + gold;
+            levelText.text = "Level\n" + level.ToString();
+            xpText.text = "XP\n" + xp.ToString();
+            goldText.text = "Gold\n" + gold.ToString();
 
-            statsSet = true;
+            isCharacterDataSet = true;
         }
     }
 }

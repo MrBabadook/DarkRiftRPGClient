@@ -116,7 +116,18 @@ namespace DarkRiftRPG
 
         private void OnSpawnPlayer(PlayerSpawnData data)
         {
-            GameManager.Instance.SpawnPlayer(data);
+            if (GameManager.Instance != null)
+            {
+                //Sanity Check
+                Debug.Log(data.ID);
+                Debug.Log(data.PlayerCharacterName);
+                Debug.Log(data.Position.ToString());
+                GameManager.Instance.SpawnPlayer(data);
+            } else
+            {
+                Debug.Log("Called too soon");
+            }
+            
         }
 
         private void OnPlayerMovementUpdate(ProccessedPlayerMovementData data)
@@ -127,6 +138,7 @@ namespace DarkRiftRPG
 
         public void TryJoinGameAsCharacterRequest(string characterID)
         {
+            Debug.Log("Inside TryJoinGameAsCharacterRequest, passing characterID " + characterID);
             using (Message message = Message.Create((ushort)Tags.JoinGameAsCharacterRequest, new JoinGameAsCharacterRequestData(characterID)))
             {
                 Client.SendMessage(message, SendMode.Reliable);

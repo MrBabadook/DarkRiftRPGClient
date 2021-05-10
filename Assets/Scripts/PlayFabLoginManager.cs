@@ -93,7 +93,7 @@ namespace DarkRiftRPG
             err =>
             {
                 Debug.Log("Error: " + err.ErrorMessage);
-                LoginPanelButtonsActive(false);
+                LoginPanelButtonsActive(true);
             });
         }
 

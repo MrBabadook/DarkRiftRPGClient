@@ -19,6 +19,6 @@ public class SimpleCameraController : MonoBehaviour
     {
         if (player == null) return;
 
-        transform.position = player.transform.position + offset;
+        transform.position = player.transform.position;
     }
 }
